@@ -60,7 +60,7 @@ func TestEmptyBranch(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run("case", func(t *testing.T) {
-			if err := tc.Op.CheckAgainstSpec(tc.Spec); err != nil {
+			if err := tc.Op.CheckAgainstSpec(tc.Spec, 1); err != nil {
 				t.Errorf("Invalid InnerOp: %v", err)
 			}
 			if leftBranchesAreEmpty(tc.Spec.InnerSpec, tc.Op) != tc.IsLeft {

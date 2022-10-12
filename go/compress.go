@@ -25,14 +25,14 @@ func Compress(proof *CommitmentProof) *CommitmentProof {
 // This is safe to call multiple times (idempotent)
 func Decompress(proof *CommitmentProof) *CommitmentProof {
 	comp := proof.GetCompressed()
-	if comp == nil {
-		return proof
+	if comp != nil {
+		return &CommitmentProof{
+			Proof: &CommitmentProof_Batch{
+				Batch: decompress(comp),
+			},
+		}
 	}
-	return &CommitmentProof{
-		Proof: &CommitmentProof_Batch{
-			Batch: decompress(comp),
-		},
-	}
+	return proof
 }
 
 func compress(batch *BatchProof) *CompressedBatchProof {
@@ -141,6 +141,24 @@ func decompressEntry(entry *CompressedBatchEntry, lookup []*InnerOp) *BatchEntry
 			},
 		},
 	}
+}
+
+// TendermintSpec constrains the format from proofs-tendermint (crypto/merkle SimpleProof)
+var TendermintSpec = &ProofSpec{
+	LeafSpec: &LeafOp{
+		Prefix:       []byte{0},
+		PrehashKey:   HashOp_NO_HASH,
+		Hash:         HashOp_SHA256,
+		PrehashValue: HashOp_SHA256,
+		Length:       LengthOp_VAR_PROTO,
+	},
+	InnerSpec: &InnerSpec{
+		ChildOrder:      []int32{0, 1},
+		MinPrefixLength: 1,
+		MaxPrefixLength: 1,
+		ChildSize:       32, // (no length byte)
+		Hash:            HashOp_SHA256,
+	},
 }
 
 func decompressExist(exist *CompressedExistenceProof, lookup []*InnerOp) *ExistenceProof {

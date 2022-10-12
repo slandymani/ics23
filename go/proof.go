@@ -10,6 +10,7 @@ import (
 var IavlSpec = &ProofSpec{
 	LeafSpec: &LeafOp{
 		Prefix:       []byte{0},
+		PrehashKey:   HashOp_NO_HASH,
 		Hash:         HashOp_SHA256,
 		PrehashValue: HashOp_SHA256,
 		Length:       LengthOp_VAR_PROTO,
@@ -19,23 +20,7 @@ var IavlSpec = &ProofSpec{
 		MinPrefixLength: 4,
 		MaxPrefixLength: 12,
 		ChildSize:       33, // (with length byte)
-		Hash:            HashOp_SHA256,
-	},
-}
-
-// TendermintSpec constrains the format from proofs-tendermint (crypto/merkle SimpleProof)
-var TendermintSpec = &ProofSpec{
-	LeafSpec: &LeafOp{
-		Prefix:       []byte{0},
-		Hash:         HashOp_SHA256,
-		PrehashValue: HashOp_SHA256,
-		Length:       LengthOp_VAR_PROTO,
-	},
-	InnerSpec: &InnerSpec{
-		ChildOrder:      []int32{0, 1},
-		MinPrefixLength: 1,
-		MaxPrefixLength: 1,
-		ChildSize:       32, // (no length byte)
+		EmptyChild:      nil,
 		Hash:            HashOp_SHA256,
 	},
 }
@@ -104,7 +89,7 @@ func (p *ExistenceProof) Verify(spec *ProofSpec, root CommitmentRoot, key []byte
 		return errors.Errorf("Provided value doesn't match proof")
 	}
 
-	calc, err := p.Calculate()
+	calc, err := p.calculate(spec)
 	if err != nil {
 		return errors.Wrap(err, "Error calculating root")
 	}
@@ -120,6 +105,10 @@ func (p *ExistenceProof) Verify(spec *ProofSpec, root CommitmentRoot, key []byte
 // You must validate the result is what you have in a header.
 // Returns error if the calculations cannot be performed.
 func (p *ExistenceProof) Calculate() (CommitmentRoot, error) {
+	return p.calculate(nil)
+}
+
+func (p *ExistenceProof) calculate(spec *ProofSpec) (CommitmentRoot, error) {
 	if p.GetLeaf() == nil {
 		return nil, errors.New("Existence Proof needs defined LeafOp")
 	}
@@ -135,6 +124,11 @@ func (p *ExistenceProof) Calculate() (CommitmentRoot, error) {
 		res, err = step.Apply(res)
 		if err != nil {
 			return nil, errors.WithMessage(err, "inner")
+		}
+		if spec != nil {
+			if len(res) > int(spec.InnerSpec.ChildSize) && int(spec.InnerSpec.ChildSize) >= 32 {
+				return nil, errors.WithMessage(err, "inner")
+			}
 		}
 	}
 	return res, nil
@@ -171,10 +165,13 @@ func (p *ExistenceProof) CheckAgainstSpec(spec *ProofSpec) error {
 		return errors.Errorf("InnerOps depth too long: %d", len(p.Path))
 	}
 
+	layerNum := 1
+
 	for _, inner := range p.Path {
-		if err := inner.CheckAgainstSpec(spec); err != nil {
+		if err := inner.CheckAgainstSpec(spec, layerNum); err != nil {
 			return errors.WithMessage(err, "inner")
 		}
+		layerNum += 1
 	}
 	return nil
 }
@@ -408,4 +405,17 @@ func orderFromPadding(spec *InnerSpec, inner *InnerOp) (int32, error) {
 		}
 	}
 	return 0, errors.New("Cannot find any valid spacing for this node")
+}
+
+// over-declares equality, which we cosnider fine for now.
+func (p *ProofSpec) SpecEquals(spec *ProofSpec) bool {
+	return p.LeafSpec.Hash == spec.LeafSpec.Hash &&
+		p.LeafSpec.PrehashKey == spec.LeafSpec.PrehashKey &&
+		p.LeafSpec.PrehashValue == spec.LeafSpec.PrehashValue &&
+		p.LeafSpec.Length == spec.LeafSpec.Length &&
+		p.InnerSpec.Hash == spec.InnerSpec.Hash &&
+		p.InnerSpec.MinPrefixLength == spec.InnerSpec.MinPrefixLength &&
+		p.InnerSpec.MaxPrefixLength == spec.InnerSpec.MaxPrefixLength &&
+		p.InnerSpec.ChildSize == spec.InnerSpec.ChildSize &&
+		len(p.InnerSpec.ChildOrder) == len(spec.InnerSpec.ChildOrder)
 }
